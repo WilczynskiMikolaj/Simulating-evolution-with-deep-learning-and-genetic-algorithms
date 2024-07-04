@@ -1,9 +1,11 @@
 import math
+from random import uniform
+
 import torch
 import numpy as np
 from AssetsDirectories import basic_organism
 import pygame
-from NeuralNetwork import OrganismBrain
+from neural_network import OrganismBrain
 from math import degrees
 from math import floor
 from math import radians
@@ -71,7 +73,7 @@ class Organism:
 
         self.pos_x = position[0]
         self.pos_y = position[1]
-        self._rotation = 0
+        self._rotation = uniform(-180, 180)
         self._velocity = basic_velocity
         self._acceleration = 0
 
@@ -136,16 +138,15 @@ class Organism:
         movement_dy = math.sin(math.radians(self._rotation)) * self._velocity * dt
         new_pos_x = self.pos_x + movement_dx
         new_pos_y = self.pos_y + movement_dy
-
         if new_pos_x < 0:
             new_pos_x = 0
-        elif new_pos_x > 856:
-            new_pos_x = 856
+        elif new_pos_x > self._screen.get_width():
+            new_pos_x = self._screen.get_width()
 
         if new_pos_y < 0:
             new_pos_y = 0
-        elif new_pos_y > 788:
-            new_pos_y = 788
+        elif new_pos_y > self._screen.get_height():
+            new_pos_y = self._screen.get_height()
 
         self.pos_x = new_pos_x
         self.pos_y = new_pos_y

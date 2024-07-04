@@ -4,9 +4,13 @@ from collections import defaultdict
 import operator
 import pygame
 import sys
-from Settings import Settings
-from Organism import Organism
-from Food import Food
+
+import torch
+
+from neural_network import OrganismBrain
+from settings import Settings
+from organism import Organism
+from food import Food
 from math import floor
 from numpy import std
 
@@ -101,6 +105,7 @@ class Simulation:
     render_simulation_progress(current_step, total_steps):
         Renders the progress of the simulation.
     """
+
     def __init__(self, data):
         """
         Constructs all the necessary attributes for the simulation.
@@ -286,6 +291,30 @@ class Simulation:
             writer.writerow([generation, food_left, best_organism, worst_organism, avg_fitness, standardDeviation,
                              avg_v, max_speed, min_speed])
 
+    def simulation_without_learning_start(self, org_name):
+        """
+        Starts the simulation loop with already trained brain.
+
+        Parameters
+        ----------
+        org_name :
+            Name of the brain data.
+        """
+        food_spawn_time = 30000
+        last_food_time = pygame.time.get_ticks()
+        self.generate_food(10)
+        brain = OrganismBrain()
+        brain.load_state_dict(torch.load(f'organism_model/{org_name}'))
+        self.generate_org_with_brain(brain)
+        while True:
+            current_time = pygame.time.get_ticks()
+            if (current_time - last_food_time) >= food_spawn_time:
+                self.generate_food(10, delete=False)
+                last_food_time = pygame.time.get_ticks()
+            self.check_events()
+            self.update()
+            self.render()
+
     def start(self):
         """
         Starts the simulation loop.
@@ -312,7 +341,7 @@ class Simulation:
                         print("Current Generation: ", self.gen, "\n")
                         self.gen += 1
                         self.start_time = current_time
-                elif self.gen % 5 == 0:
+                elif self.gen % 10 == 0:
                     self.in_simulation = True
                     self.check_events()
                     self.update()
@@ -345,10 +374,36 @@ class Simulation:
                     self.gen += 1
                     self.start_time = pygame.time.get_ticks()
             else:
+                self.save_model()
                 self.unpack_data(self.entire_data)
                 self.gen = 0
                 self.initialize_csv()
                 self.do_not_make_more_flag = False
+
+    def save_model(self):
+        """
+        Saves neural network data.
+        """
+        ind = 0
+        for org in self.organisms:
+            torch.save(org.brain.state_dict(), f"organism_model/organism_brain{str(ind)}.pth")
+            ind += 1
+
+    def generate_org_with_brain(self, brain):
+        """
+        Generates the organism with defined brain.
+
+        Parameters
+        ----------
+        brain :
+            brain of the organism.
+        """
+        location_x = random.randint(0, self.screen.get_width())
+        location_y = random.randint(0, self.screen.get_height())
+        o = Organism(self.screen, (location_x, location_y), "Organism", brain=brain,
+                     rotation_factor=self.rotation_factor, acc_factor=self.acc_factor,
+                     basic_velocity=self.org_speed, max_v=self.max_v)
+        self.organisms.append(o)
 
     def generate_organisms(self, number: int):
         """
@@ -360,9 +415,9 @@ class Simulation:
             The number of organisms to generate.
         """
         for i in range(number):
-            location_x = random.randint(0, 856)
-            location_y = random.randint(0, 788)
-            o = Organism(self.screen, (location_x, location_y), "Organism: "+f'{i}',
+            location_x = random.randint(0, self.screen.get_width())
+            location_y = random.randint(0, self.screen.get_height())
+            o = Organism(self.screen, (location_x, location_y), "Organism: " + f'{i}',
                          rotation_factor=self.rotation_factor, acc_factor=self.acc_factor,
                          basic_velocity=self.org_speed, max_v=self.max_v)
             print("Org: ", i, "\n")
@@ -371,19 +426,22 @@ class Simulation:
             self.organisms.append(o)
             print("\n\n\n")
 
-    def generate_food(self, number: int):
+    def generate_food(self, number: int, delete=True):
         """
         Generates the food items for the simulation.
 
         Parameters
         ----------
+        delete: bool
+
         number : int
             The number of food items to generate.
         """
-        self.food_list = []
+        if delete:
+            self.food_list = []
         for i in range(number):
-            location_x = random.randint(0, 856)
-            location_y = random.randint(0, 788)
+            location_x = random.randint(0, self.screen.get_width())
+            location_y = random.randint(0, self.screen.get_height())
             self.food_list.append(Food((location_x, location_y), self.screen))
 
     def check_events(self):
