@@ -1,4 +1,5 @@
 import csv
+import math
 import random
 from collections import defaultdict
 import operator
@@ -7,6 +8,7 @@ import sys
 
 import torch
 
+from Obstacle import Obstacle
 from neural_network import OrganismBrain
 from settings import Settings
 from organism import Organism
@@ -79,6 +81,8 @@ class Simulation:
         The name of the CSV file.
     do_not_make_more_flag : bool
         Flag to prevent creating more organisms.
+    obstacles: list
+        The list of obstacles in the simulation.
 
     Methods
     -------
@@ -137,6 +141,8 @@ class Simulation:
 
         self.entire_data = data
 
+        self.obstacles = []
+
         # Data
         self.gen_max = 0
         self.food_amount = 0
@@ -150,6 +156,7 @@ class Simulation:
         self.rotation_factor = 0
         self.max_v = 0
         self.unpack_data(self.entire_data)
+        self.obstacle_number = 12
 
         self.csv_index = 0
         self.csv_name = ""
@@ -197,20 +204,16 @@ class Simulation:
         for i in range(0, elitism_num):
             random_pos = (random.randint(0, 856), random.randint(0, 788))
             print(random_pos)
-            organisms_new.append(Organism(self.screen, random_pos, orgs_sorted[i].name, brain=orgs_sorted[i].brain,
-                                          rotation_factor=self.rotation_factor, acc_factor=self.acc_factor,
-                                          basic_velocity=self.org_speed, max_v=self.max_v))
+            organisms_r = self.generate_org(orgs_sorted[i].name + 'v1', brain=orgs_sorted[i].brain)
+            organisms_new.append(organisms_r)
 
         for w in range(0, new_organisms):
-            random_pos = (random.randint(0, 856), random.randint(0, 788))
             candidates = range(0, elitism_num)
             random_index = random.sample(candidates, 2)
             org_1 = orgs_sorted[random_index[0]]
             org_2 = orgs_sorted[random_index[1]]
 
-            new_organism = Organism(self.screen, random_pos, 'gen[' + str(generation) + ']-org[' + str(w) + ']',
-                                    rotation_factor=self.rotation_factor, acc_factor=self.acc_factor,
-                                    basic_velocity=self.org_speed, max_v=self.max_v)
+            new_organism = self.generate_org('gen[' + str(generation) + ']-org[' + str(w) + ']')
             new_organism.brain.crossover(org_1.brain, org_2.brain)
             new_organism.brain.mutate(self.mutations)
             organisms_new.append(new_organism)
@@ -302,6 +305,7 @@ class Simulation:
         """
         food_spawn_time = 30000
         last_food_time = pygame.time.get_ticks()
+        self.generate_obstacles(20)
         self.generate_food(10)
         brain = OrganismBrain()
         brain.load_state_dict(torch.load(f'organism_model/{org_name}'))
@@ -341,7 +345,7 @@ class Simulation:
                         print("Current Generation: ", self.gen, "\n")
                         self.gen += 1
                         self.start_time = current_time
-                elif self.gen % 10 == 0:
+                elif self.gen % 10 == 0 or self.gen % 25 == 0:
                     self.in_simulation = True
                     self.check_events()
                     self.update()
@@ -349,6 +353,8 @@ class Simulation:
                     current_time = pygame.time.get_ticks()
                     if (current_time - self.start_time) >= self.time:
                         self.food_left = len(self.food_list)
+                        if self.gen > 14:
+                            self.generate_obstacles(self.obstacle_number)
                         self.generate_food(self.food_amount)
                         self.evolve(self.gen, self.organism_amount)
                         print("evolved")
@@ -360,12 +366,19 @@ class Simulation:
                 else:
                     self.in_simulation = False
                     frames_amount: int = 60 * self.frames
+                    if self.gen == 15:
+                        for org in self.organisms:
+                            org.train_obstacle_avoid = True
                     for i in range(frames_amount):
                         self.check_events()
+                        for obs in self.obstacles:
+                            obs.update_no_sim(i)
                         self.update()
-                        if i % 100 == 0:
+                        if i % 900 == 0:
                             self.render_simulation_progress(i, frames_amount)
                     self.food_left = len(self.food_list)
+                    if self.gen > 14:
+                        self.generate_obstacles(self.obstacle_number)
                     self.generate_food(self.food_amount)
                     self.evolve(self.gen, self.organism_amount)
                     self.save_data_to_csv(self.gen, self.food_left, self.stats["Best"], self.stats["Worst"],
@@ -405,6 +418,60 @@ class Simulation:
                      basic_velocity=self.org_speed, max_v=self.max_v)
         self.organisms.append(o)
 
+    def generate_obstacles(self, number: int, delete=True):
+        """
+        Generates the obstacles for the simulation.
+
+        Parameters
+        ----------
+        delete: bool
+
+        number : int
+            The number of obstacles to generate.
+        """
+        if delete:
+            self.obstacles = []
+
+        for _ in range(number):
+            while True:
+                location_x = random.randint(100, self.screen.get_width() - 100)
+                location_y = random.randint(100, self.screen.get_height() - 100)
+                new_obstacle = Obstacle((location_x, location_y), self.screen)
+
+                # Check for collisions with existing obstacles
+                collision = False
+                for obstacle in self.obstacles:
+                    if self.calculate_distance(location_x, location_y, obstacle.rect.centerx,
+                                               obstacle.rect.centery) < 125:
+                        collision = True
+                        break
+
+                if not collision:
+                    self.obstacles.append(new_obstacle)
+                    break
+
+    def calculate_distance(self, pos_x, pos_y, pos_x1, pos_y1):
+        """
+        Calculates the distance between two points using Euclidean distance.
+
+        Parameters
+        ----------
+        pos_x : float
+            The x position of the first point.
+        pos_y : float
+            The y position of the first point.
+        pos_x1 : float
+            The x position of the second point.
+        pos_y1 : float
+            The y position of the second point.
+
+        Returns
+        -------
+        float
+            The distance between the two points.
+        """
+        return math.sqrt((pos_x1 - pos_x) ** 2 + (pos_y1 - pos_y) ** 2)
+
     def generate_organisms(self, number: int):
         """
         Generates the initial population of organisms.
@@ -415,16 +482,43 @@ class Simulation:
             The number of organisms to generate.
         """
         for i in range(number):
+            while True:
+                location_x = random.randint(0, self.screen.get_width())
+                location_y = random.randint(0, self.screen.get_height())
+                o = Organism(self.screen, (location_x, location_y), "Organism: " + f'{i}',
+                             rotation_factor=self.rotation_factor, acc_factor=self.acc_factor,
+                             basic_velocity=self.org_speed, max_v=self.max_v)
+                collision = False
+                for obstacle in self.obstacles:
+                    if o.organism_rect.colliderect(obstacle.rect):
+                        collision = True
+                        break
+
+                if not collision:
+                    self.organisms.append(o)
+                    break
+
+    def generate_org(self, name, brain=None):
+        while True:
             location_x = random.randint(0, self.screen.get_width())
             location_y = random.randint(0, self.screen.get_height())
-            o = Organism(self.screen, (location_x, location_y), "Organism: " + f'{i}',
-                         rotation_factor=self.rotation_factor, acc_factor=self.acc_factor,
-                         basic_velocity=self.org_speed, max_v=self.max_v)
-            print("Org: ", i, "\n")
-            for param in o.brain.parameters():
-                print(param.data)
-            self.organisms.append(o)
-            print("\n\n\n")
+            o: Organism
+            if brain is None:
+                o = Organism(self.screen, (location_x, location_y), name,
+                             rotation_factor=self.rotation_factor, acc_factor=self.acc_factor,
+                             basic_velocity=self.org_speed, max_v=self.max_v)
+            else:
+                o = Organism(self.screen, (location_x, location_y), name, brain=brain,
+                             rotation_factor=self.rotation_factor, acc_factor=self.acc_factor,
+                             basic_velocity=self.org_speed, max_v=self.max_v)
+            collision = False
+            for obstacle in self.obstacles:
+                if o.organism_rect.colliderect(obstacle.rect):
+                    collision = True
+                    break
+
+            if not collision:
+                return o
 
     def generate_food(self, number: int, delete=True):
         """
@@ -439,10 +533,21 @@ class Simulation:
         """
         if delete:
             self.food_list = []
-        for i in range(number):
-            location_x = random.randint(0, self.screen.get_width())
-            location_y = random.randint(0, self.screen.get_height())
-            self.food_list.append(Food((location_x, location_y), self.screen))
+        for _ in range(number):
+            while True:
+                location_x = random.randint(0, self.screen.get_width())
+                location_y = random.randint(0, self.screen.get_height())
+                new_food = Food((location_x, location_y), self.screen)
+
+                collision = False
+                for obstacle in self.obstacles:
+                    if new_food.food_rect.colliderect(obstacle.rect):
+                        collision = True
+                        break
+
+                if not collision:
+                    self.food_list.append(new_food)
+                    break
 
     def check_events(self):
         """
@@ -458,10 +563,14 @@ class Simulation:
         """
         Updates the state of the simulation.
         """
+        if self.in_simulation:
+            for obs in self.obstacles:
+                obs.update()
         for organism in self.organisms:
             organism.find_nearest_food(self.food_list)
+            organism.find_nearest_obstacle(self.obstacles)
             organism.check_collision_with_food(self.food_list)
-            organism.update(self.dt)
+            organism.update(self.dt, self.obstacles)
 
     def render(self):
         """
@@ -469,6 +578,8 @@ class Simulation:
         """
         self.screen.fill(self.settings.bg_color)
         organism: Organism
+        for obstacle in self.obstacles:
+            obstacle.draw()
         for organism in self.organisms:
             organism.draw()
         food: Food

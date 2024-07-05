@@ -27,9 +27,9 @@ class OrganismBrain(nn.Module):
         """
         super().__init__()
         self.model = nn.Sequential(
-            nn.Linear(1, 5),
+            nn.Linear(7, 9),
             nn.Tanh(),
-            nn.Linear(5, 2),
+            nn.Linear(9, 2),
         )
 
     def forward(self, x):
@@ -59,26 +59,28 @@ class OrganismBrain(nn.Module):
         """
         mutate = random.random()
         if mutate <= mutation_factor:
-            mat_pick = random.randint(0, 1)
 
-            if mat_pick == 0:
-                layer = self.model[0]
-                index_row = random.randint(0, 4)
-                weight = layer.weight[index_row, :].clone()
-                mutation_factor = random.uniform(0.9, 1.1)
-                weight *= mutation_factor
-                weight = weight.clamp(-1, 1)
-                layer.weight[index_row, :].data.copy_(weight)
+            for i in range(2):
+                mat_pick = random.randint(0, 2)
+                if mat_pick == 0:
+                    layer = self.model[0]
+                    index_row = random.randint(0, 8)
+                    index_col = random.randint(0, 6)
+                    weight = layer.weight[index_row, index_col].clone()
+                    mutation_factor = random.uniform(0.9, 1.1)
+                    weight *= mutation_factor
+                    weight = weight.clamp(-1, 1)
+                    layer.weight[index_row, :].data.copy_(weight)
 
-            if mat_pick == 1:
-                layer = self.model[2]
-                index_row = random.randint(0, 1)
-                index_col = random.randint(0, 4)
-                weight = layer.weight[index_row, index_col].clone()
-                mutation_factor = random.uniform(0.9, 1.1)
-                weight *= mutation_factor
-                weight = weight.clamp(-1, 1)
-                layer.weight[index_row, index_col].data.copy_(weight)
+                if mat_pick == 2:
+                    layer = self.model[2]
+                    index_row = random.randint(0, 1)
+                    index_col = random.randint(0, 8)
+                    weight = layer.weight[index_row, index_col].clone()
+                    mutation_factor = random.uniform(0.9, 1.1)
+                    weight *= mutation_factor
+                    weight = weight.clamp(-1, 1)
+                    layer.weight[index_row, index_col].data.copy_(weight)
 
     def crossover(self, nn1: nn.Module, nn2: nn.Module):
         """

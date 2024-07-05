@@ -16,6 +16,6 @@ class Settings:
         """
         Initializes the settings for the simulation.
         """
-        self.screen_width = 856
-        self.screen_height = 788
+        self.screen_width = 900
+        self.screen_height = 850
         self.bg_color = (0, 109, 91)

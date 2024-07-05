@@ -43,6 +43,7 @@ class Organism:
     calculate_distance(pos_x, pos_y, pos_x1, pos_y1)
         Calculates the distance between two points.
     """
+
     def __init__(self, screen, position, name, brain=None, rotation_factor=0, acc_factor=0, basic_velocity=6, max_v=10):
         """
         Initializes the Organism with a position, brain, and various movement parameters.
@@ -90,6 +91,13 @@ class Organism:
         self._acceleration_factor = acc_factor
         self.max_v = max_v
 
+        self.nearest_obstacle_distance_top = 0
+        self.nearest_obstacle_distance_bottom = 0
+        self.nearest_obstacle_distance_left = 0
+        self.nearest_obstacle_distance_right = 0
+        self.orientation_to_nearest_obstacle = 0
+        self.train_obstacle_avoid = False
+
     def draw(self):
         """
         Draws the organism on the screen.
@@ -108,10 +116,19 @@ class Organism:
         """
         Uses the neural network to process inputs and produce outputs.
         """
-        input_data = torch.tensor([[self.orientation_to_nearest_food]]).float()
-        self._output = self.brain.forward(input_data).detach().numpy()
+        if self.train_obstacle_avoid:
+            input_data = torch.tensor([[self.orientation_to_nearest_food, self.nearest_food_distance,
+                                        self.orientation_to_nearest_obstacle,
+                                        self.nearest_obstacle_distance_top, self.nearest_obstacle_distance_bottom,
+                                        self.nearest_obstacle_distance_left,
+                                        self.nearest_obstacle_distance_right]]).float()
+            self._output = self.brain.forward(input_data).detach().numpy()
+        else:
+            input_data = torch.tensor([[self.orientation_to_nearest_food, self.nearest_food_distance, 0, 0, 0, 0,
+                                        0]]).float()
+            self._output = self.brain.forward(input_data).detach().numpy()
 
-    def update(self, dt):
+    def update(self, dt, obstacles):
         """
         Updates the organism's state including rotation, speed, and position.
 
@@ -119,13 +136,15 @@ class Organism:
         ----------
         dt : float
             The time delta since the last update.
+        obstacles : list
+            A list of obstacles to check for collisions.
         """
         self.think()
         self.update_rotation(dt)
         self.update_speed(dt)
-        self.update_position(dt)
+        self.update_position(dt, obstacles)
 
-    def update_position(self, dt):
+    def update_position(self, dt, obstacles):
         """
         Updates the organism's position based on its velocity and rotation.
 
@@ -133,23 +152,57 @@ class Organism:
         ----------
         dt : float
             The time delta since the last update.
+        obstacles : list
+            A list of obstacles to check for collisions.
         """
         movement_dx = math.cos(math.radians(self._rotation)) * self._velocity * dt
         movement_dy = math.sin(math.radians(self._rotation)) * self._velocity * dt
+        # Check new position along x-axis
         new_pos_x = self.pos_x + movement_dx
+        temp_rect_x = self.organism_rect.copy()
+        temp_rect_x.center = (new_pos_x, self.pos_y)
+
+        collision_x = False
+        for obstacle in obstacles:
+            if temp_rect_x.colliderect(obstacle.rect):
+                collision_x = True
+                if self.train_obstacle_avoid and obstacle.check_name(self.name):
+                    self.fitness -= 1
+                    if self.fitness < 0:
+                        self.fitness = 0
+                break
+
+        if not collision_x:
+            self.pos_x = new_pos_x
+
+        # Check new position along y-axis
         new_pos_y = self.pos_y + movement_dy
-        if new_pos_x < 0:
-            new_pos_x = 0
-        elif new_pos_x > self._screen.get_width():
-            new_pos_x = self._screen.get_width()
+        temp_rect_y = self.organism_rect.copy()
+        temp_rect_y.center = (self.pos_x, new_pos_y)
 
-        if new_pos_y < 0:
-            new_pos_y = 0
-        elif new_pos_y > self._screen.get_height():
-            new_pos_y = self._screen.get_height()
+        collision_y = False
+        for obstacle in obstacles:
+            if temp_rect_y.colliderect(obstacle.rect):
+                collision_y = True
+                if self.train_obstacle_avoid and obstacle.check_name(self.name):
+                    self.fitness -= 1
+                    if self.fitness < 0:
+                        self.fitness = 0
+                break
 
-        self.pos_x = new_pos_x
-        self.pos_y = new_pos_y
+        if not collision_y:
+            self.pos_y = new_pos_y
+
+        # Ensure the organism stays within the screen boundaries
+        if self.pos_x < 0:
+            self.pos_x = 0
+        elif self.pos_x > self._screen.get_width():
+            self.pos_x = self._screen.get_width()
+
+        if self.pos_y < 0:
+            self.pos_y = 0
+        elif self.pos_y > self._screen.get_height():
+            self.pos_y = self._screen.get_height()
 
     def update_rotation(self, dt):
         """
@@ -204,6 +257,45 @@ class Organism:
         if abs(theta) > 180:
             theta += 360
         return theta / 180
+
+    def find_nearest_obstacle(self, obstacles):
+        nearest_obstacle = None
+        min_distance = float('inf')
+        for obstacle in obstacles:
+            distance = self.calculate_distance(self.pos_x, self.pos_y, obstacle.position[0], obstacle.position[1])
+            if distance < min_distance:
+                min_distance = distance
+                nearest_obstacle = obstacle
+
+        max_possible_distance = self._screen.get_width()
+        if nearest_obstacle:
+            self.nearest_obstacle_distance_top = self.calculate_distance(self.pos_x, self.pos_y,
+                                                                         nearest_obstacle.rect.midtop[0],
+                                                                         nearest_obstacle.rect.midtop[1])
+            self.nearest_obstacle_distance_top = ((2 * self.nearest_obstacle_distance_top) / max_possible_distance) - 1
+            self.nearest_obstacle_distance_left = self.calculate_distance(self.pos_x, self.pos_y,
+                                                                          nearest_obstacle.rect.midleft[0],
+                                                                          nearest_obstacle.rect.midleft[1])
+            self.nearest_obstacle_distance_left = ((
+                                                           2 * self.nearest_obstacle_distance_left) / max_possible_distance) - 1
+            self.nearest_obstacle_distance_bottom = self.calculate_distance(self.pos_x, self.pos_y,
+                                                                            nearest_obstacle.rect.midbottom[0],
+                                                                            nearest_obstacle.rect.midbottom[1])
+            self.nearest_obstacle_distance_bottom = ((
+                                                             2 * self.nearest_obstacle_distance_bottom) / max_possible_distance) - 1
+            self.nearest_obstacle_distance_right = self.calculate_distance(self.pos_x, self.pos_y,
+                                                                           nearest_obstacle.rect.midright[0],
+                                                                           nearest_obstacle.rect.midright[1])
+            self.nearest_obstacle_distance_right = ((
+                                                            2 * self.nearest_obstacle_distance_right) / max_possible_distance) - 1
+            self.orientation_to_nearest_obstacle = self.calculate_orient_to_food(nearest_obstacle.position[0],
+                                                                                 nearest_obstacle.position[1])
+        else:
+            self.nearest_obstacle_distance_right = 0
+            self.nearest_obstacle_distance_left = 0
+            self.nearest_obstacle_distance_top = 0
+            self.nearest_obstacle_distance_bottom = 0
+            self.orientation_to_nearest_obstacle = 0
 
     def find_nearest_food(self, food_list):
         """
